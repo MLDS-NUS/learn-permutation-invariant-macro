@@ -1,0 +1,160 @@
+# https://utkstair.org/clausius/docs/mse614/text/examples.html?utm_source=chatgpt.com
+# https://utkstair.org/clausius/docs/mse614/data/in_lj_v02.txt
+
+
+
+
+#
+#  define units
+#
+units       lj
+dimension   2
+
+#
+#  specify fixed boundary conditions in x/y
+#
+boundary f f p
+
+#
+#  define atom_style
+#  full covers everything
+#
+atom_style  full
+
+#
+#  define simulation volume
+#  If I want N = 512 atoms
+#  and I want a density of rho = 0.5 atoms/lj-sigma^2
+#  Then I can determine the size of a square by
+#  size = (N/rho)^(1/2)
+#
+
+variable l      equal 32.0
+region      boxid block 0.0       ${l}      0.0       26     -0.5        0.5 units box
+create_box  2 boxid
+
+#
+#  specify initial positions of atoms
+#  sq = square lattice
+#  0.5 = density in lj units
+#
+lattice     sq 0.50
+#  place atoms of type 1 in the full domain
+create_atoms    1 region boxid
+
+#
+#   define mass
+#
+#   mass of atom type 1
+mass        1 1.0
+mass        2 1.0
+
+#
+#  specify initial velocity of atoms
+#  group = all
+#  reduced temperature is T = 1.0 = lj-eps/kb
+#  seed for random number generator
+#  distribution is gaussian (e.g. Maxwell-Boltzmann)
+#
+# variable vel_seed equal 87287
+velocity    all create 1.0 ${vel_seed} dist gaussian
+fix         0 all enforce2d
+fix         walls all wall/reflect xlo EDGE xhi EDGE ylo EDGE yhi EDGE units box
+
+#
+#  specify interaction potential
+#  pairwise interaction via the Lennard-Jones potential with a cut-off at 2.5 lj-sigma
+#
+pair_style  lj/cut 2.5
+#  specify parameters between atoms of type 1 with an atom of type 1
+#  epsilon = 0.7, sigma = 1.0, cutoff = 2.5
+pair_coeff  1 1 0.5 1.0 2.5
+pair_coeff  2 2 0.6 0.9 2.5
+pair_coeff  1 2 0.7 0.90 2.5
+
+#
+# add long-range tail correction (disabled in 2D)
+
+#
+#  specify parameters for neighbor list
+#  rnbr = rcut + 0.3
+#
+neighbor    0.3 bin
+
+#
+#  specify thermodynamic properties to be output
+#  pe = potential energy
+#  ke = kinetic energy
+#  etotal = pe + ke
+#  temp = temperature
+#  press = pressure
+#  density = number density
+#  output every thousand steps
+#  norm = normalize by # of atoms (yes or no)
+#
+thermo_style custom step pe ke etotal temp press density
+thermo 100
+thermo_modify norm no
+
+#
+#  specify ensemble
+#  fixid = 1
+#  atoms = all
+#  ensemble = nve or nvt
+#
+#
+fix     1 all nve
+
+timestep 0.002
+
+run 3000
+
+#
+#  assign particle types based on x position
+#  half_l is provided via the -var half_l command-line argument
+#
+region      box_left  block 0.0       ${half_l} 0.0 ${l} -0.5 0.5 units box
+region      box_right block ${half_l} ${l}     0.0 ${l} -0.5 0.5 units box
+set         region box_left  type 1
+set         region box_right type 2
+
+#
+#  define groups by type after reassigning types
+#
+group       type1 type 1
+group       type2 type 2
+
+#
+#  stop fix with given fixid
+#  fixid = 1
+#
+unfix 1
+
+# reset timestep counter after relax
+reset_timestep 0
+# restore unlike interaction after relax
+pair_coeff  1 2 0.7 0.90 2.5
+#
+#  specify ensemble
+#  fixid = 2
+#  atoms = all
+#  ensemble = nvt
+#  temp = temperature
+#  initial temperature = 1.0
+#  final temperature = 1.0
+#  thermostat controller gain = 0.1 (units of time, bigger is less tight control)
+#
+fix     2 all nvt temp 1.0 1.0 0.1
+
+
+#
+#   save configurations
+#   dumpid = 1
+#   filename = output.xyz
+#
+# variable dumpfile string sim.lammpstrj
+dump    1       all custom 200 ${dumpfile} id type x y
+dump_modify 1 format line "%d %d %.8f %.8f"
+
+
+run     100000
